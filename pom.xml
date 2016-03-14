@@ -18,6 +18,13 @@
 			<version>5.1.0</version>
 		</dependency>
 
+		<!-- CSV parsing -->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-csv</artifactId>
+			<version>1.2</version>
+		</dependency>
+
 		<!-- Logging -->
 		<dependency>
 			<groupId>org.slf4j</groupId>
