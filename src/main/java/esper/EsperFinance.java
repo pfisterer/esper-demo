@@ -5,8 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.text.SimpleDateFormat;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Date;
 import java.util.Random;
 
 import org.apache.commons.csv.CSVFormat;
@@ -15,7 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.espertech.esper.client.Configuration;
-import com.espertech.esper.client.EPAdministrator;
 import com.espertech.esper.client.EPRuntime;
 import com.espertech.esper.client.EPServiceProvider;
 import com.espertech.esper.client.EPServiceProviderManager;
@@ -26,6 +24,113 @@ public class EsperFinance {
 
 	static {
 		Main.setupLogging();
+	}
+
+	static class StockEvent {
+		String key;
+		Double closing;
+		Date date;
+
+		public String getKey() {
+			return key;
+		}
+
+		public void setKey(String key) {
+			this.key = key;
+		}
+
+		public Double getClosing() {
+			return closing;
+		}
+
+		public void setClosing(Double closing) {
+			this.closing = closing;
+		}
+
+		public Date getDate() {
+			return date;
+		}
+
+		public void setDate(Date date) {
+			this.date = date;
+		}
+
+	}
+
+	static class GrowthEvent {
+		String key;
+
+		Double growth;
+
+		public String getKey() {
+			return key;
+		}
+
+		public void setKey(String key) {
+			this.key = key;
+		}
+
+		public Double getGrowth() {
+			return growth;
+		}
+
+		public void setGrowth(Double growth) {
+			this.growth = growth;
+		}
+
+	}
+
+	public static void setupGrowthQuery(EPServiceProvider esper, Logger log) {
+		esper.getEPAdministrator().getConfiguration().addEventType("StockEvent", StockEvent.class);
+
+		String expression = "select a.key as key, b.closing - a.closing as growth from pattern[every a=StockEvent -> timer:interval(1 sec)  -> b=StockEvent(key=a.key)]";
+
+		EPStatement epStatement = esper.getEPAdministrator().createEPL(expression);
+
+		epStatement.addListener((EventBean[] newEvents, EventBean[] oldEvents) -> {
+			if (newEvents == null || newEvents.length < 1) {
+				log.warn("Received null event or length < 1: " + newEvents);
+				return;
+			}
+
+			EventBean event = newEvents[0];
+			Double growth = (Double) event.get("growth");
+			String key = (String) event.get("key");
+
+			log.info("Growth: " + growth + " (" + key + ")");
+
+			GrowthEvent growthEvent = new GrowthEvent();
+			growthEvent.key = key;
+			growthEvent.growth = growth;
+			esper.getEPRuntime().sendEvent(growthEvent);
+		});
+
+		epStatement.start();
+	}
+
+	public static void setupComparyStocksQuery(EPServiceProvider esper, Logger log) {
+
+		esper.getEPAdministrator().getConfiguration().addEventType("GrowthMessage", GrowthEvent.class);
+
+		String expression = "SELECT * From GrowthMessage(key='apple').win:length(1) as gm1, GrowthMessage(key='cisco').win:length(1) as gm2";
+
+		EPStatement epStatement = esper.getEPAdministrator().createEPL(expression);
+
+		epStatement.addListener((EventBean[] newEvents, EventBean[] oldEvents) -> {
+			if (newEvents == null || newEvents.length < 1) {
+				log.warn("Received null event or length < 1: " + newEvents);
+				return;
+			}
+
+			EventBean event = newEvents[0];
+			Double gm2Growth = (Double) event.get("gm2.growth");
+			Double gm1Growth = (Double) event.get("gm1.growth");
+			double diff = gm2Growth - gm1Growth;
+
+			log.info("Diff: " + event.get("gm2.key") + " - " + event.get("gm1.key") + " = " + diff);
+		});
+
+		epStatement.start();
 	}
 
 	public static void streamToEsper(EPRuntime esper, String file, String key) {
@@ -40,12 +145,11 @@ public class EsperFinance {
 					.parse(new InputStreamReader(instream));
 
 			for (CSVRecord record : records) {
-				Map<String, Object> event = new HashMap<>();
-				event.put("key", key);
-				event.put("closing", Double.parseDouble(record.get("Close")));
-				event.put("date", format.parse(record.get("Date")));
-
-				esper.sendEvent(event, "StockEvent");
+				StockEvent stockEvent = new StockEvent();
+				stockEvent.key = key;
+				stockEvent.closing = Double.parseDouble(record.get("Close"));
+				stockEvent.date = format.parse(record.get("Date"));
+				esper.sendEvent(stockEvent);
 
 				Thread.sleep(r.nextInt(200));
 			}
@@ -55,46 +159,18 @@ public class EsperFinance {
 		}
 	}
 
-	public static void setupQuery(EPAdministrator esper, Logger log) {
-		String expression = "select AVG(closing) as avg " + "from StockEvent.win:time(10 seconds)";
-
-		EPStatement epStatement = esper.createEPL(expression);
-
-		epStatement.addListener((EventBean[] newEvents, EventBean[] oldEvents) -> {
-			if (newEvents == null || newEvents.length < 1) {
-				log.warn("Received null event or length < 1: " + newEvents);
-				return;
-			}
-
-			EventBean event = newEvents[0];
-
-			log.info("" + event.get("avg"));
-
-		});
-
-		epStatement.start();
-	}
-
 	public static void main(String[] args) throws FileNotFoundException, IOException {
 		Logger log = LoggerFactory.getLogger(Main.class);
+
 		Configuration esperClientConfiguration = new Configuration();
+		EPServiceProvider esperServiceProvider = EPServiceProviderManager.getDefaultProvider(esperClientConfiguration);
+		EPRuntime esperRuntime = esperServiceProvider.getEPRuntime();
 
-		// Setup Esper and define a message Type "TwitterEvent"
-		EPServiceProvider epServiceProvider = EPServiceProviderManager.getDefaultProvider(esperClientConfiguration);
-		{
-			Map<String, Object> eventDef = new HashMap<>();
-			eventDef.put("key", String.class);
-			eventDef.put("closing", Double.class);
-			eventDef.put("date", java.util.Date.class);
-			epServiceProvider.getEPAdministrator().getConfiguration().addEventType("StockEvent", eventDef);
-		}
+		setupGrowthQuery(esperServiceProvider, log);
+		setupComparyStocksQuery(esperServiceProvider, log);
 
-		EPRuntime esper = epServiceProvider.getEPRuntime();
-
-		setupQuery(epServiceProvider.getEPAdministrator(), log);
-		new Thread(() -> streamToEsper(esper, "yahoo-finance-cisco.csv", "cisco")).start();
-		new Thread(() -> streamToEsper(esper, "yahoo-finance-apple.csv", "apple")).start();
-		new Thread(() -> streamToEsper(esper, "yahoo-finance-ibm.csv", "ibm")).start();
-
+		new Thread(() -> streamToEsper(esperRuntime, "yahoo-finance-cisco.csv", "cisco")).start();
+		new Thread(() -> streamToEsper(esperRuntime, "yahoo-finance-apple.csv", "apple")).start();
+		new Thread(() -> streamToEsper(esperRuntime, "yahoo-finance-ibm.csv", "ibm")).start();
 	}
 }
