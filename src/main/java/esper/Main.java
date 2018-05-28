@@ -16,11 +16,9 @@ import com.espertech.esper.client.EPServiceProviderManager;
 import com.espertech.esper.client.EPStatement;
 import com.espertech.esper.client.EventBean;
 
-import de.uniluebeck.itm.util.logging.Logging;
-
 public class Main {
 	static {
-		setupLogging();
+		SLF4JBridgeHandler.install();
 	}
 
 	public static void main(String[] args) {
@@ -44,7 +42,7 @@ public class Main {
 		// Create a query and add a listener to it
 		{
 			String expression = "select keyword, sentiment, count(sentiment) as counter "
-					+ "from TwitterEvent.win:time(10 seconds) group by sentiment, keyword";
+					+ "from TwitterEvent.win:time(10) group by sentiment, keyword";
 
 			EPStatement epStatement = epServiceProvider.getEPAdministrator().createEPL(expression);
 
@@ -97,17 +95,6 @@ public class Main {
 			});
 		}
 
-	}
-
-	public static void setupLogging() {
-		// Optionally remove existing handlers attached to j.u.l root logger
-		SLF4JBridgeHandler.removeHandlersForRootLogger(); // (since SLF4J 1.6.5)
-
-		// add SLF4JBridgeHandler to j.u.l's root logger, should be done once during
-		// the initialization phase of your application
-		SLF4JBridgeHandler.install();
-
-		Logging.setLoggingDefaults();
 	}
 
 }

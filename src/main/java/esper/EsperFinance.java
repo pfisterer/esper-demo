@@ -22,14 +22,10 @@ import com.espertech.esper.client.EventBean;
 
 public class EsperFinance {
 
-	static {
-		Main.setupLogging();
-	}
-
-	static class StockEvent {
-		String key;
-		Double closing;
-		Date date;
+	public static class StockEvent {
+		public String key;
+		public Double closing;
+		public Date date;
 
 		public String getKey() {
 			return key;
@@ -57,7 +53,7 @@ public class EsperFinance {
 
 	}
 
-	static class GrowthEvent {
+	public static class GrowthEvent {
 		String key;
 
 		Double growth;
@@ -83,7 +79,8 @@ public class EsperFinance {
 	public static void setupGrowthQuery(EPServiceProvider esper, Logger log) {
 		esper.getEPAdministrator().getConfiguration().addEventType("StockEvent", StockEvent.class);
 
-		String expression = "select a.key as key, b.closing - a.closing as growth from pattern[every a=StockEvent -> timer:interval(1 sec)  -> b=StockEvent(key=a.key)]";
+		String expression = "select a.key as key, b.closing - a.closing as growth "
+				+ "from pattern[every a=StockEvent -> timer:interval(1 sec)  -> b=StockEvent(key=a.key)]";
 
 		EPStatement epStatement = esper.getEPAdministrator().createEPL(expression);
 
@@ -140,7 +137,8 @@ public class EsperFinance {
 
 		Iterable<CSVRecord> records;
 		try {
-			records = CSVFormat.DEFAULT.withHeader("Date", "Open", "High", "Low", "Close", "Volume", "Adj Close")
+			records = CSVFormat.DEFAULT
+					.withHeader("Date", "Open", "High", "Low", "Close", "Volume", "Adj Close")
 					.withSkipHeaderRecord()
 					.parse(new InputStreamReader(instream));
 
